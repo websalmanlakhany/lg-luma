@@ -285,10 +285,9 @@ try {
   assert.deepEqual(clockFocus.focus, { Choice: 1 });
   const system = await scenario(
     'system-settings',
-    'settings,down,down,down,down,down,right,down,down,down',
+    'settings,down,down,down,down,down,right,down,down',
   );
   assert.deepEqual(system.focus, { Setting: 5 });
-  assert.ok(system.ui_text.includes('Use Luma as Home'));
   assert.ok(system.ui_text.includes('Refresh apps & inputs'));
   assert.ok(system.ui_text.includes('Quit app'));
   assert.ok(system.ui_text.includes('Text rendering'));

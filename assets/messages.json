@@ -505,39 +505,6 @@
     "pl": "Zamknij aplikację",
     "fr": "Quitter l’application"
   },
-  "useAsHome": {
-    "en": "Use Luma as Home",
-    "de": "Luma als Startseite verwenden",
-    "zh": "将 Luma 用作主页",
-    "es": "Usar Luma como inicio",
-    "pt": "Usar o Luma como início",
-    "it": "Usa Luma come Home",
-    "ru": "Luma как главный экран",
-    "pl": "Luma jako ekran główny",
-    "fr": "Utiliser Luma comme accueil"
-  },
-  "homeSwitching": {
-    "en": "Switching Home…",
-    "de": "Startseite wird gewechselt…",
-    "zh": "正在切换主页…",
-    "es": "Cambiando el inicio…",
-    "pt": "Trocando o início…",
-    "it": "Cambio della Home…",
-    "ru": "Смена главного экрана…",
-    "pl": "Zmiana ekranu głównego…",
-    "fr": "Changement de l’accueil…"
-  },
-  "homeSwitchError": {
-    "en": "Home could not be switched",
-    "de": "Startseite konnte nicht gewechselt werden",
-    "zh": "无法切换主页",
-    "es": "No se pudo cambiar el inicio",
-    "pt": "Não foi possível trocar o início",
-    "it": "Impossibile cambiare la Home",
-    "ru": "Не удалось сменить главный экран",
-    "pl": "Nie udało się zmienić ekranu głównego",
-    "fr": "Impossible de changer l’accueil"
-  },
   "language": {
     "en": "Language",
     "de": "Anzeigesprache",

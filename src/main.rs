@@ -318,11 +318,6 @@ fn effects(
                 }
             }
             Effect::Quit => return false,
-            Effect::SwitchHome(on) => {
-                state.switching_home = true;
-                state.dirty = true;
-                platform.send(Request::SwitchHome(on));
-            }
             Effect::Recent {
                 generation,
                 command,
@@ -607,7 +602,6 @@ fn run() -> Result<(), String> {
         storage::load(&preferences_path)?
     };
     let mut state = State::new(initial_preferences);
-    state.is_home = options.webos_home;
     if options.test_extra_apps > 0 {
         eprintln!(
             "Luma scroll preview: explicit {}-app expansion; preferences {}",
@@ -939,20 +933,6 @@ fn run() -> Result<(), String> {
                     } else if initial_focus {
                         state.focus = state.first_content();
                         initial_focus = false;
-                    }
-                }
-                Response::HomeSwitched(result) => {
-                    state.switching_home = false;
-                    state.dirty = true;
-                    match result {
-                        Err(error) => {
-                            eprintln!("Luma Home switch: {error}");
-                            state.notify(state.preferences.language.t("homeSwitchError"));
-                        }
-                        // Turned on from the app tile: the Home instance has opened, so this
-                        // one leaves rather than run beside it.
-                        Ok(()) if !state.is_home => running = false,
-                        Ok(()) => {}
                     }
                 }
                 Response::Launched(result) => {

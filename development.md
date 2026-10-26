@@ -513,12 +513,8 @@ executable itself stays at its installed path for LS2 authentication, `$ORIGIN/l
 and preference selection. Opening Luma's normal tile while the Home mount is active redirects to
 the Home instance. The scripts do not create a browser wrapper or change the package's app ID.
 
-**Settings → System → Use Luma as Home** runs `home.sh disable` or `home.sh resume` through
-Homebrew Channel's root service, with output in `/var/lib/luma-home/switch.log`. `resume` enables
-again from the saved `state.json` without the SSH confirmation: it reinstalls the boot hook,
-closes the normal tile that asked and opens Luma as Home. It needs one `enable` over SSH first.
-On every method `/var/run/luma-home` marks an active takeover, because on webOS 9 the tile's jail
-also sees `/usr/palm/applications` without the mount.
+On every method `/var/run/luma-home` marks an active takeover, so a tile launch opens the Home
+instance: on webOS 9 the tile's jail also sees `/usr/palm/applications` without the mount.
 
 `64-luma-home` reapplies the mount from a detached boot hook. The existing TV Home Auto Launch
 and Quick Start+ settings determine whether power-on opens Home. Until the hook applies, LG Home

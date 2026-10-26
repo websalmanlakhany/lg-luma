@@ -612,17 +612,6 @@ try {
         2
       )
     );
-  } else if (command === 'resume') {
-    // Luma's Settings switch: enable again with the saved state, without the SSH confirmation.
-    if (!fs.existsSync(CONFIG)) throw new Error('Luma Home has not been enabled');
-    var resumed = json(CONFIG);
-    installHook();
-    // The tile that asked for this; its Home instance takes over.
-    closeNormal();
-    apply(resumed, true);
-    resumed.enabled = true;
-    writeJson(CONFIG, resumed);
-    console.log('Luma is Home again.');
   } else if (command === 'apply' || command === 'disable' || command === 'restore') {
     if (!fs.existsSync(CONFIG)) throw new Error('Luma Home has not been enabled');
     var config = json(CONFIG);
