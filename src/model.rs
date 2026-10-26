@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
 pub const CATEGORIES: [&str; 4] = ["Streaming", "Music", "Gaming", "Utilities"];
-pub const BACKGROUNDS: [(&str, &str); 9] = [
+pub const BACKGROUNDS: [(&str, &str); 11] = [
     ("slate", "Slate"),
     ("midnight", "Midnight"),
     ("prism", "Prism"),
@@ -14,7 +14,11 @@ pub const BACKGROUNDS: [(&str, &str); 9] = [
     ("forest", "Forest"),
     ("yosemite", "Yosemite"),
     ("northern-lights", "Northern lights"),
+    ("aurora", "Live aurora"),
+    ("ember", "Live ember"),
 ];
+/// Backgrounds the renderer draws with a shader each frame instead of showing a photo.
+pub const LIVE_BACKGROUNDS: [&str; 2] = ["aurora", "ember"];
 
 // Generic fallbacks use delimited words, so "game" does not match "endgame".
 // Non-ASCII bytes count as boundaries for localized titles. Curated vector
@@ -98,6 +102,10 @@ pub struct Preferences {
     pub show_app_names: bool,
     pub hour_24: bool,
     pub reduced_motion: bool,
+    /// Pans and zooms photo wallpapers slowly, so no part of the panel holds one image.
+    pub wallpaper_drift: bool,
+    /// Moves the interface a few pixels every few minutes, against OLED burn-in.
+    pub pixel_shift: bool,
     pub show_seconds: bool,
     /// Optional name appended to the Home greeting ("Good evening, Ana."). Empty = plain greeting.
     pub greeting_name: String,
@@ -127,6 +135,8 @@ impl Default for Preferences {
             show_app_names: true,
             hour_24: false,
             reduced_motion: false,
+            wallpaper_drift: true,
+            pixel_shift: true,
             show_seconds: false,
             greeting_name: String::new(),
             input_modes: BTreeMap::new(),

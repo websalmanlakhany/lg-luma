@@ -1500,3 +1500,43 @@ fn inventory_success_resets_failures_and_later_failures_show_at_once() {
     assert!(!state.loading && state.error.is_some());
     assert!(!state.inventory.apps.is_empty());
 }
+
+#[test]
+fn pixel_shift_moves_the_interface_and_its_hit_targets_but_not_the_wallpaper() {
+    let state = ready();
+    let usual = scene(&state);
+    let mut shifted = scene(&state);
+    let offset = view::pixel_shift(
+        &state,
+        time::OffsetDateTime::UNIX_EPOCH + time::Duration::minutes(2),
+    );
+    assert_ne!(offset, (0., 0.));
+    view::shift(&mut shifted, offset);
+    let wallpaper = |scene: &view::Scene| match &scene.draw[0] {
+        crate::renderer::Draw::Image(_, rect, ..) => (rect.x, rect.y),
+        _ => panic!("the wallpaper is drawn first"),
+    };
+    assert_eq!(wallpaper(&shifted), wallpaper(&usual));
+    let (moved, before) = (shifted.controls[0].rect, usual.controls[0].rect);
+    assert_eq!((moved.x - before.x, moved.y - before.y), offset);
+}
+
+#[test]
+fn wallpaper_motion_follows_its_switches_and_reduced_motion() {
+    let mut state = ready();
+    let start = time::OffsetDateTime::UNIX_EPOCH;
+    let later = start + time::Duration::seconds(30);
+    assert_ne!(view::motion(&state, start).1, view::motion(&state, later).1);
+    state.preferences.wallpaper_drift = false;
+    assert_eq!(view::motion(&state, later).1, None);
+    state.preferences.background = "aurora".into();
+    assert!(view::next_frame_in(&state, later).is_some());
+    state.preferences.reduced_motion = true;
+    assert_eq!(view::motion(&state, later).0, Some(0));
+    assert_eq!(view::next_frame_in(&state, later), None);
+    state.preferences.pixel_shift = false;
+    assert_eq!(
+        view::pixel_shift(&state, start + time::Duration::minutes(2)),
+        (0., 0.)
+    );
+}

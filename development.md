@@ -437,6 +437,23 @@ window's sample count and reports differing pixels in the diagnostics (`damage_v
 full frames as baseline). `--profile-frames` diagnostics include `redrawn_fraction_mean` and a
 per-frame `timeline` of interval, compose, render and swap time and redrawn share.
 
+### Burn-in protection
+
+**Settings → General** has **Wallpaper drift** and **Pixel shift**, both on by default and saved as
+`wallpaper_drift` and `pixel_shift`. Drift draws a photo wallpaper 40 px larger than the screen on
+each side and pans it on 307 s and 419 s sine periods, in whole logical pixels, so it repaints about
+once a second. Pixel shift moves everything except full-screen layers, hit targets included, through
+eight offsets of up to 6 logical px, one every two minutes. It is applied after `reveal_focus`,
+which keeps working on the usual positions. Reduced motion stops drift but not pixel shift.
+
+**Live aurora** and **Live ember** are drawn by `src/shaders/live-*.frag` into a 640×360 texture at
+10 frames a second (`LIVE_FPS`), which the paint shader scales up like a photo, with the same
+scrim folding. `live.frag` applies the shading `pnpm assets` bakes into photos. The view passes
+the frame after `#` in the wallpaper path, so damage tracking sees each new frame; the main loop
+wakes for the next frame only while one is shown. Reduced motion holds frame 0. Their
+`assets/wallpapers/*.jpg` stills are shader frames, used for the thumbnail, the splash and on a GPU
+where the shader fails, and `pnpm assets` does not shade them again.
+
 Full-screen translucent fills drawn straight over the wallpaper (the Recents backdrop and
 gradient) each map a pixel p to p * (1 - a) + c * a, so together they are p * m + k. The renderer
 draws the wallpaper once with m and k per vertex (16 strips keep gradients' colour-alpha products

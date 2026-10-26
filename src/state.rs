@@ -1473,6 +1473,8 @@ impl State {
                         return vec![];
                     }
                     2 => self.preferences.reduced_motion = !self.preferences.reduced_motion,
+                    8 => self.preferences.wallpaper_drift = !self.preferences.wallpaper_drift,
+                    9 => self.preferences.pixel_shift = !self.preferences.pixel_shift,
                     4 => {
                         self.subpage = Some(Subpage::Language);
                         self.focus = Target::Choice(self.preferences.language.index());

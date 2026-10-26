@@ -483,6 +483,28 @@
     "pl": "Ograniczenie ruchu",
     "fr": "Animations réduites"
   },
+  "wallpaperDrift": {
+    "en": "Wallpaper drift",
+    "de": "Hintergrund bewegen",
+    "es": "Movimiento del fondo",
+    "zh": "壁纸缓慢移动",
+    "pt": "Movimento do fundo",
+    "it": "Movimento dello sfondo",
+    "ru": "Движение фона",
+    "pl": "Ruch tapety",
+    "fr": "Mouvement du fond"
+  },
+  "pixelShift": {
+    "en": "Pixel shift",
+    "de": "Pixelverschiebung",
+    "es": "Desplazamiento de píxeles",
+    "zh": "像素位移",
+    "pt": "Deslocamento de pixels",
+    "it": "Spostamento dei pixel",
+    "ru": "Сдвиг пикселей",
+    "pl": "Przesuwanie pikseli",
+    "fr": "Décalage des pixels"
+  },
   "refreshApps": {
     "en": "Refresh apps & inputs",
     "de": "Apps und Eingänge aktualisieren",
@@ -1527,6 +1549,28 @@
     "ru": "Северное сияние",
     "pl": "Zorza polarna",
     "fr": "Aurores boréales"
+  },
+  "liveAurora": {
+    "en": "Live aurora",
+    "de": "Live-Polarlicht",
+    "es": "Aurora en vivo",
+    "zh": "动态极光",
+    "pt": "Aurora animada",
+    "it": "Aurora animata",
+    "ru": "Живое сияние",
+    "pl": "Animowana zorza",
+    "fr": "Aurore animée"
+  },
+  "liveEmber": {
+    "en": "Live ember",
+    "de": "Live-Glut",
+    "es": "Brasas en vivo",
+    "zh": "动态余烬",
+    "pt": "Brasas animadas",
+    "it": "Brace animata",
+    "ru": "Живые угли",
+    "pl": "Animowany żar",
+    "fr": "Braises animées"
   },
   "liveTV": {
     "en": "Live TV",

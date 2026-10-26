@@ -49,6 +49,8 @@ if (weights.error || weights.status !== 0) {
 await fs.copyFile(path.join(source, 'fonts/ofl.txt'), path.join(out, 'font-license.txt'));
 await fs.copyFile(path.join(source, 'fonts/noto-ofl.txt'), path.join(out, 'font-cjk-license.txt'));
 
+// LIVE_BACKGROUNDS in src/model.rs.
+const liveWallpapers = ['aurora', 'ember'];
 for (const file of await fs.readdir(path.join(source, 'wallpapers'))) {
   if (!/\.(jpg|svg)$/.test(file)) continue;
   const id = path.parse(file).name;
@@ -56,6 +58,15 @@ for (const file of await fs.readdir(path.join(source, 'wallpapers'))) {
   for (const scale of highResolution ? [1, 2] : [1]) {
     const width = 1920 * scale;
     const height = 1080 * scale;
+    // A live wallpaper's still is a frame of its shader, which applies the shading below itself.
+    // It is shown before the shader's first frame and where the shader cannot run.
+    if (liveWallpapers.includes(id)) {
+      await sharp(input)
+        .resize(width, height, { fit: 'cover' })
+        .jpeg({ quality: 96 })
+        .toFile(path.join(out, 'wallpapers', `${id}${scale === 2 ? '@2x' : ''}.jpg`));
+      continue;
+    }
     // Match background-size:cover and each CSS background-position exactly.
     const photo = await sharp(input, { density: 72 * scale })
       .resize(width, height, { fit: 'outside' })
