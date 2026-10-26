@@ -16,8 +16,9 @@ var CONFIG = STATE + '/state.json';
 // native lifecycle-v2 program whose LS2 role is bound to this executable path. Mounting Luma's
 // executable over it keeps LG's manifest and role; Luma then registers with SAM itself.
 var EXE = '/usr/bin/' + HOME;
-// Tells a normal tile launch to open the Home instance. The tile's jail sees /usr/bin without
-// this mount but shares /var/run, which is volatile like the mount itself.
+// Tells a normal tile launch to open the Home instance. The tile's jail sees /usr/bin (and on
+// webOS 9 /usr/palm/applications) without the mount but shares /var/run, which is volatile like
+// the mount itself.
 var MARKER = '/var/run/luma-home';
 // webOS 9 (method "manifest"): SAM rescans every manifest when configd's blocked-app list changes.
 // Glasshouse Home's takeover relies on this on webOS 9 (a G3 on 9.2.2 took a mounted Home
@@ -440,6 +441,7 @@ function restore(config) {
     console.error('Luma Home: ' + error.message + ', restoring the files first');
   }
   if (foreignMount()) throw new Error('Another integration is mounted over LG Home');
+  if (fs.existsSync(MARKER)) fs.unlinkSync(MARKER);
   if (mounted()) {
     try {
       run('/bin/umount', [TARGET]);
@@ -500,6 +502,7 @@ function apply(config, open) {
   try {
     if (!mounted()) run('/bin/mount', ['--bind', STAGE, TARGET]);
     if (!mounted()) throw new Error('The Home bind mount did not take');
+    fs.writeFileSync(MARKER, APP + '\n', { mode: 420 });
     reread(json(STAGE + '/appinfo.json'));
     stopHome(config.appDir);
     // Only replace the screen if Home is still in front. During boot the
@@ -609,6 +612,17 @@ try {
         2
       )
     );
+  } else if (command === 'resume') {
+    // Luma's Settings switch: enable again with the saved state, without the SSH confirmation.
+    if (!fs.existsSync(CONFIG)) throw new Error('Luma Home has not been enabled');
+    var resumed = json(CONFIG);
+    installHook();
+    // The tile that asked for this; its Home instance takes over.
+    closeNormal();
+    apply(resumed, true);
+    resumed.enabled = true;
+    writeJson(CONFIG, resumed);
+    console.log('Luma is Home again.');
   } else if (command === 'apply' || command === 'disable' || command === 'restore') {
     if (!fs.existsSync(CONFIG)) throw new Error('Luma Home has not been enabled');
     var config = json(CONFIG);

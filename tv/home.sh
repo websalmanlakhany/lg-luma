@@ -4,8 +4,8 @@ STATE=/var/lib/luma-home
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd) || exit 1
 COMMAND=${1:-boot}
 case "$COMMAND" in
-  enable|disable|restore|status|apply|boot) ;;
-  *) printf '%s\n' 'Usage: home.sh enable [APP_DIR] | disable | restore | status' >&2; exit 1 ;;
+  enable|disable|restore|resume|status|apply|boot) ;;
+  *) printf '%s\n' 'Usage: home.sh enable [APP_DIR] | disable | restore | resume | status' >&2; exit 1 ;;
 esac
 [ "$(id -u)" = 0 ] || { printf '%s\n' 'Run as root.' >&2; exit 1; }
 [ -x /usr/bin/node ] || { printf '%s\n' 'The TV Node.js runtime is missing.' >&2; exit 1; }

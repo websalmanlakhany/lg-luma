@@ -2037,6 +2037,17 @@ fn settings(out: &mut Scene, state: &State, assets: &Assets) {
                     Some(language.t(state.preferences.text_rendering.label_key())),
                     true,
                 ),
+                (
+                    8,
+                    language.t(if state.switching_home {
+                        "homeSwitching"
+                    } else {
+                        "useAsHome"
+                    }),
+                    "tv",
+                    Some(language.t(if state.is_home { "stateOn" } else { "stateOff" })),
+                    false,
+                ),
                 (5, language.t("quitApp"), "power", None, false),
             ]
             .into_iter()

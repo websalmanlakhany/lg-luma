@@ -750,6 +750,13 @@ fn system_category_owns_refresh_and_quit_and_restores_sidebar_focus() {
     state.direction(Direction::Down, &controls(&state));
     assert_eq!(state.focus, Target::Setting(7));
     state.direction(Direction::Down, &controls(&state));
+    assert_eq!(state.focus, Target::Setting(8));
+    assert_eq!(state.activate(), vec![Effect::SwitchHome(true)]);
+    state.is_home = true;
+    assert_eq!(state.activate(), vec![Effect::SwitchHome(false)]);
+    state.switching_home = true;
+    assert_eq!(state.activate(), vec![]);
+    state.direction(Direction::Down, &controls(&state));
     assert_eq!(state.focus, Target::Setting(5));
     assert_eq!(state.activate(), vec![Effect::Quit]);
     state.back();

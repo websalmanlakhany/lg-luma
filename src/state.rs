@@ -155,6 +155,8 @@ pub enum Effect {
     },
     Quit,
     Weather(weather::Command),
+    /// Make Luma the TV's Home (true) or give Home back to LG (false).
+    SwitchHome(bool),
 }
 
 pub const KEYS: [&str; 40] = [
@@ -194,6 +196,9 @@ pub struct State {
     pub greeting_name_draft: String,
     pub input_name: String,
     pub recents: crate::recents::Recents,
+    /// This instance runs as the TV's Home through the root integration.
+    pub is_home: bool,
+    pub switching_home: bool,
 }
 
 impl State {
@@ -227,6 +232,8 @@ impl State {
             greeting_name_draft: String::new(),
             input_name: String::new(),
             recents: crate::recents::Recents::default(),
+            is_home: false,
+            switching_home: false,
         }
     }
 
@@ -1482,6 +1489,12 @@ impl State {
                         return vec![];
                     }
                     5 => return vec![Effect::Quit],
+                    8 => {
+                        if self.switching_home {
+                            return vec![];
+                        }
+                        return vec![Effect::SwitchHome(!self.is_home)];
+                    }
                     7 => {
                         self.subpage = Some(Subpage::TextRendering);
                         self.focus = Target::Choice(self.preferences.text_rendering.index());

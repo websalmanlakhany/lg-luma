@@ -115,6 +115,11 @@ sh /var/lib/luma-home/home.sh disable
 
 `restore` is an alias for `disable`.
 
+Once enabled, **Settings → System → Use Luma as Home** switches between Luma and LG's Home without
+SSH. Turning it off gives Home back to LG. To turn it on again, open the Luma tile from LG's app
+list and switch it back on (`home.sh resume` does the same over SSH). Opening the Luma tile while
+Luma is Home opens the Home instance, so only one copy runs.
+
 Boot log: `/var/lib/luma-home/boot.log`. See the
 [development guide](development.md#optional-native-home-integration) for implementation details.
 

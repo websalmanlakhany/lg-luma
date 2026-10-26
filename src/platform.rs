@@ -137,6 +137,7 @@ pub enum Request {
     Refresh,
     Launch(String),
     SyncSplash(String),
+    SwitchHome(bool),
     Recent {
         generation: u64,
         command: crate::recents::Command,
@@ -145,6 +146,7 @@ pub enum Request {
 pub enum Response {
     Inventory(Result<(Inventory, Option<String>), String>),
     Launched(Result<(), String>),
+    HomeSwitched(Result<(), String>),
     Recent {
         generation: u64,
         command: crate::recents::Command,
@@ -221,6 +223,11 @@ impl Platform {
                     } else {
                         Ok(())
                     }),
+                    Request::SwitchHome(on) => Response::HomeSwitched(if webos {
+                        switch_home(on)
+                    } else {
+                        Err("Home can only be switched on a TV".into())
+                    }),
                     Request::SyncSplash(background) => {
                         if webos
                             && splash_enabled
@@ -275,6 +282,21 @@ fn sync_splash(background: &str) -> Result<(), String> {
         return Err("Splash background was not updated".into());
     }
     Ok(())
+}
+
+// Runs the root integration's own script, so switching from Settings does exactly what
+// `home.sh disable` and `home.sh resume` do over SSH. Giving Home back stops this process
+// before the reply arrives; the script runs on under Homebrew's service.
+fn switch_home(on: bool) -> Result<(), String> {
+    let command = format!(
+        "if [ ! -f /var/lib/luma-home/state.json ]; then printf '%s\\n' '{{\"returnValue\":false,\"errorText\":\"Enable Luma Home over SSH once first\"}}'; elif sh /var/lib/luma-home/home.sh {} >>/var/lib/luma-home/switch.log 2>&1; then printf '%s\\n' '{{\"returnValue\":true,\"home\":{on}}}'; else printf '%s\\n' '{{\"returnValue\":false,\"errorText\":\"See /var/lib/luma-home/switch.log\"}}'; fi",
+        if on { "resume" } else { "disable" }
+    );
+    let envelope = call(
+        "luna://org.webosbrew.hbchannel.service/exec",
+        json!({"command": command}),
+    )?;
+    inventory_payload(&envelope, "home").map(|_| ())
 }
 
 fn call(uri: &str, payload: Value) -> Result<Value, String> {
