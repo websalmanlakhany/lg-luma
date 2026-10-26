@@ -60,6 +60,42 @@ function pause() {
   run('/bin/sleep', ['1']);
 }
 
+// BusyBox sleep may not take fractions; Atomics.wait blocks for milliseconds without a child.
+function pauseBriefly() {
+  if (typeof Atomics === 'object' && typeof SharedArrayBuffer === 'function') {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+  } else {
+    pause();
+  }
+}
+
+// Seconds since the TV started, for the boot log.
+function stamp(message) {
+  var uptime = '?';
+  try {
+    uptime = read('/proc/uptime').split(' ')[0];
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  console.log('Luma Home: ' + message + ' at ' + uptime + ' s');
+}
+
+// At a cold boot the hook can start before SAM answers. Waits up to 60 s.
+function waitForSam() {
+  var last = 'no reply';
+  for (var i = 0; i < 240; i++) {
+    try {
+      var reply = luna('getForegroundAppInfo', {});
+      if (reply.returnValue === true) return;
+      last = JSON.stringify(reply);
+    } catch (error) {
+      last = error.message;
+    }
+    pauseBriefly();
+  }
+  throw new Error('SAM did not answer within 60 s: ' + last);
+}
+
 function excerpt(output) {
   return (
     String(output || '')
@@ -280,9 +316,9 @@ function samHas(expected) {
 }
 
 function waitForManifest(expected) {
-  for (var i = 0; i < 15; i++) {
+  for (var i = 0; i < 60; i++) {
     if (samHas(expected)) return true;
-    pause();
+    pauseBriefly();
   }
   return false;
 }
@@ -503,11 +539,16 @@ function apply(config, open) {
     if (!mounted()) run('/bin/mount', ['--bind', STAGE, TARGET]);
     if (!mounted()) throw new Error('The Home bind mount did not take');
     fs.writeFileSync(MARKER, APP + '\n', { mode: 420 });
+    stamp('mounted');
     reread(json(STAGE + '/appinfo.json'));
+    stamp('SAM has the Luma manifest');
     stopHome(config.appDir);
     // Only replace the screen if Home is still in front. During boot the
     // owner may have already selected an input or another app.
-    if (open || (front === HOME && foreground() === HOME)) launchHome();
+    if (open || (front === HOME && foreground() === HOME)) {
+      launchHome();
+      stamp('Luma opened as Home');
+    }
   } catch (error) {
     try {
       restore(config);
@@ -616,6 +657,9 @@ try {
     if (!fs.existsSync(CONFIG)) throw new Error('Luma Home has not been enabled');
     var config = json(CONFIG);
     if (command === 'apply' && config.enabled) {
+      stamp('boot hook started');
+      waitForSam();
+      stamp('SAM answers');
       apply(config, false);
     } else {
       config.enabled = false;

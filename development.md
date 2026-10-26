@@ -516,7 +516,7 @@ the Home instance. The scripts do not create a browser wrapper or change the pac
 On every method `/var/run/luma-home` marks an active takeover, so a tile launch opens the Home
 instance: on webOS 9 the tile's jail also sees `/usr/palm/applications` without the mount.
 
-`64-luma-home` reapplies the mount from a detached boot hook. The existing TV Home Auto Launch
+`64-luma-home` reapplies the mount from a detached boot hook. It starts as soon as SAM answers, polled every 250 ms for up to 60 s, and logs each step with the TV's uptime to `boot.log`. The existing TV Home Auto Launch
 and Quick Start+ settings determine whether power-on opens Home. Until the hook applies, LG Home
 can still appear. This integration does not change those settings or install a remote-key filter.
 `disable` (also `restore`) removes the mount, refreshes LG's manifest, stops the native Home

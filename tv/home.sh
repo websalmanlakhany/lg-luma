@@ -59,7 +59,6 @@ if [ ! -d "$STATE" ]; then mkdir -m 755 "$STATE" || exit 1; fi
 [ "$(stat -c %u "$STATE")" = 0 ] || exit 1
 if [ "$COMMAND" = boot ]; then
   (
-    sleep 5
     exec sh "$STATE/home.sh" apply
   ) </dev/null >>"$STATE/boot.log" 2>&1 &
   exit 0
