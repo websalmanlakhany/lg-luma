@@ -19,6 +19,14 @@ var EXE = '/usr/bin/' + HOME;
 // Tells a normal tile launch to open the Home instance. The tile's jail sees /usr/bin without
 // this mount but shares /var/run, which is volatile like the mount itself.
 var MARKER = '/var/run/luma-home';
+// webOS 9 (method "manifest"): SAM rescans every manifest when configd's blocked-app list changes.
+// Glasshouse Home's takeover relies on this on webOS 9 (a G3 on 9.2.2 took a mounted Home
+// manifest this way). The list goes back to its previous value at once, but configd keeps it as a
+// user-defined value, so a later firmware or region change of LG's list does not replace it.
+var CONFIG_SERVICE = 'com.webos.service.config';
+var BLOCKED_LIST = 'profile.blockedAppList';
+// Not an app: blocking it blocks nothing.
+var NUDGE_ID = 'com.ecklf.luma.rescan';
 
 function read(file) {
   return fs.readFileSync(file, 'utf8');
@@ -60,7 +68,7 @@ function excerpt(output) {
   );
 }
 
-function luna(method, payload) {
+function luna(method, payload, service) {
   // -n prints one JSON reply to stdout. -t is timing mode and logs the
   // payload to stderr instead, leaving timing summaries on stdout.
   var result = spawnSync(
@@ -70,7 +78,7 @@ function luna(method, payload) {
       '1',
       '-w',
       '4000',
-      'luna://com.webos.applicationManager/' + method,
+      'luna://' + (service || 'com.webos.applicationManager') + '/' + method,
       JSON.stringify(payload)
     ],
     {
@@ -181,7 +189,7 @@ function unmountExe() {
 }
 
 function homeMethod(release, stock) {
-  if (/release\s+(10|11)\./.test(release)) return 'manifest';
+  if (/release\s+(9|10|11)\./.test(release)) return 'manifest';
   if (
     /release\s+[56]\./.test(release) &&
     stock &&
@@ -190,7 +198,7 @@ function homeMethod(release, stock) {
     stock.nativeLifeCycleInterfaceVersion === 2
   )
     return 'executable';
-  throw new Error('This Home integration currently targets webOS 5/6 and 25/26 (10.x/11.x)');
+  throw new Error('This Home integration currently targets webOS 5/6, 9 and 25/26 (10.x/11.x)');
 }
 
 function releaseHome() {
@@ -207,7 +215,41 @@ function releaseHome() {
   throw new Error('Could not release Home: ' + JSON.stringify(result));
 }
 
-function reread(expected) {
+function setBlockedList(list) {
+  var configs = {};
+  configs[BLOCKED_LIST] = list;
+  return luna('setConfigs', { configs: configs }, CONFIG_SERVICE);
+}
+
+// Returns false where the TV has no blocked-app list to change.
+function nudgeBlockedList() {
+  var reply = luna('getConfigs', { configNames: [BLOCKED_LIST] }, CONFIG_SERVICE);
+  var list = reply.configs && reply.configs[BLOCKED_LIST];
+  if (!Array.isArray(list)) return false;
+  // An interrupted earlier nudge may have left the ID in.
+  var previous = list.filter(function (id) {
+    return id !== NUDGE_ID;
+  });
+  try {
+    accepted(
+      setBlockedList(previous.concat([NUDGE_ID])),
+      'Change the blocked-app list for a manifest refresh'
+    );
+    pause();
+  } finally {
+    for (var i = 0; i < 3; i++) {
+      try {
+        if (setBlockedList(previous).returnValue === true) break;
+      } catch (error) {
+        console.error('Luma Home: ' + error.message);
+      }
+      pause();
+    }
+  }
+  return true;
+}
+
+function blockAndRelease() {
   var payload = { id: HOME };
   var schema = '/etc/palm/schemas/sam/applicationManager.blockSystemApp.schema';
   if (fs.existsSync(schema) && read(schema).indexOf('"forceBlockSystemApp"') !== -1) {
@@ -222,20 +264,35 @@ function reread(expected) {
   } finally {
     releaseHome();
   }
+}
+
+function samHas(expected) {
+  var info = accepted(luna('getAppInfo', { id: HOME }), 'Read Home manifest').appInfo;
+  return !!(
+    info &&
+    info.type === expected.type &&
+    (typeof expected.main !== 'string' ||
+      path.basename(info.main || '') === path.basename(expected.main)) &&
+    (expected.main !== 'luma' ||
+      (Array.isArray(info.appCategory) && info.appCategory.indexOf('home') !== -1))
+  );
+}
+
+function waitForManifest(expected) {
   for (var i = 0; i < 15; i++) {
-    var info = accepted(luna('getAppInfo', { id: HOME }), 'Read Home manifest').appInfo;
-    if (
-      info &&
-      info.type === expected.type &&
-      (typeof expected.main !== 'string' ||
-        path.basename(info.main || '') === path.basename(expected.main)) &&
-      (expected.main !== 'luma' ||
-        (Array.isArray(info.appCategory) && info.appCategory.indexOf('home') !== -1))
-    )
-      return;
+    if (samHas(expected)) return true;
     pause();
   }
-  throw new Error('SAM did not read the expected Home manifest');
+  return false;
+}
+
+function reread(expected) {
+  if (/release\s+9\./.test(read('/etc/starfish-release'))) {
+    if (nudgeBlockedList() && waitForManifest(expected)) return;
+    console.error('Luma Home: SAM did not rescan, blocking and releasing Home instead');
+  }
+  blockAndRelease();
+  if (!waitForManifest(expected)) throw new Error('SAM did not read the expected Home manifest');
 }
 
 function foreground() {

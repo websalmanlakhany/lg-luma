@@ -29,7 +29,9 @@ elif [ "$COMMAND" = enable ]; then
     '  1. Close any running normal Luma instance.' \
     "  2. Create $STATE with integration scripts, saved state and a staged native Home app linked to Luma." \
     "  3. Bind-mount $STATE/app over /usr/palm/applications/com.webos.app.home." \
-    '  4. Temporarily block and release Home so SAM rereads its manifest.' \
+    '  4. Make SAM reread the Home manifest: on webOS 9 by adding an unused ID to the' \
+    "     TV's blocked-app list and removing it again, otherwise (or if that fails) by" \
+    '     temporarily blocking and releasing Home.' \
     '  5. Stop the previous Home process and launch Luma as Home.' \
     '  6. Install /var/lib/webosbrew/init.d/64-luma-home to reapply the mount at cold boot.' \
     '' \
