@@ -484,11 +484,14 @@ failures preserve the last valid inputs. No failed inventory read substitutes de
 ### Optional native Home integration
 
 `tv/home.sh` and `tv/home.cjs` are packaged beside `luma`. They are a root-only, explicit integration
-for webOS 10/25 and 11/26 (and webOS 5/6, see below). `enable` stages a native manifest with ID `com.webos.app.home` and
+for webOS 9, 10/25 and 11/26 (and webOS 5/6, see below). `enable` stages a native manifest with ID `com.webos.app.home` and
 symlinks to the installed executable, libraries and assets under `/var/lib/luma-home/app`, then
 bind-mounts it over `/usr/palm/applications/com.webos.app.home`. SAM rereads that one app through
 `blockSystemApp` followed by `releaseBlockSystemApp`, including `forceBlockSystemApp: false` when
-the TV schema requires it. The script verifies the reported manifest before stopping the previous
+the TV schema requires it. On webOS 9 it first adds an unused ID to configd's
+`profile.blockedAppList` for a second and puts the list back, which makes SAM rescan every
+manifest (the method Glasshouse Home's takeover uses there); block and release follow only if SAM
+has not taken the manifest within 15 s. configd keeps the restored list as a user-defined value. The script verifies the reported manifest before stopping the previous
 Home process. It attempts to restore LG Home if applying the mount or refreshing SAM fails.
 
 Before staging, `enable` closes the normal Luma instance with `closeByAppId` and waits up to five
@@ -510,7 +513,10 @@ executable itself stays at its installed path for LS2 authentication, `$ORIGIN/l
 and preference selection. Opening Luma's normal tile while the Home mount is active redirects to
 the Home instance. The scripts do not create a browser wrapper or change the package's app ID.
 
-`64-luma-home` reapplies the mount from a detached boot hook. The existing TV Home Auto Launch
+On every method `/var/run/luma-home` marks an active takeover, so a tile launch opens the Home
+instance: on webOS 9 the tile's jail also sees `/usr/palm/applications` without the mount.
+
+`10-luma-home` reapplies the mount from a detached boot hook, named to run before other homebrew hooks (it replaces `64-luma-home` from earlier releases). It starts as soon as SAM answers, polled every 250 ms for up to 60 s, and logs each step with the TV's uptime to `boot.log`. The existing TV Home Auto Launch
 and Quick Start+ settings determine whether power-on opens Home. Until the hook applies, LG Home
 can still appear. This integration does not change those settings or install a remote-key filter.
 `disable` (also `restore`) removes the mount, refreshes LG's manifest, stops the native Home

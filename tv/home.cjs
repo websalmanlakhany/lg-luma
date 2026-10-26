@@ -10,15 +10,28 @@ var HOME = 'com.webos.app.home';
 var STATE = '/var/lib/luma-home';
 var STAGE = STATE + '/app';
 var TARGET = '/usr/palm/applications/' + HOME;
-var HOOK = '/var/lib/webosbrew/init.d/64-luma-home';
+// run-parts starts the hooks in name order, one at a time. Ahead of other homebrew hooks (Glasshouse's
+// 50-tvweb runs for about 6 s on a G4, webOS 9), Luma takes Home that much sooner after a cold boot.
+var HOOK = '/var/lib/webosbrew/init.d/10-luma-home';
+// Where earlier releases installed it.
+var OLD_HOOK = '/var/lib/webosbrew/init.d/64-luma-home';
 var CONFIG = STATE + '/state.json';
 // webOS 5/6 (method "executable"): SAM cannot reread a mounted manifest there, but LG Home is a
 // native lifecycle-v2 program whose LS2 role is bound to this executable path. Mounting Luma's
 // executable over it keeps LG's manifest and role; Luma then registers with SAM itself.
 var EXE = '/usr/bin/' + HOME;
-// Tells a normal tile launch to open the Home instance. The tile's jail sees /usr/bin without
-// this mount but shares /var/run, which is volatile like the mount itself.
+// Tells a normal tile launch to open the Home instance. The tile's jail sees /usr/bin (and on
+// webOS 9 /usr/palm/applications) without the mount but shares /var/run, which is volatile like
+// the mount itself.
 var MARKER = '/var/run/luma-home';
+// webOS 9 (method "manifest"): SAM rescans every manifest when configd's blocked-app list changes.
+// Glasshouse Home's takeover relies on this on webOS 9 (a G3 on 9.2.2 took a mounted Home
+// manifest this way). The list goes back to its previous value at once, but configd keeps it as a
+// user-defined value, so a later firmware or region change of LG's list does not replace it.
+var CONFIG_SERVICE = 'com.webos.service.config';
+var BLOCKED_LIST = 'profile.blockedAppList';
+// Not an app: blocking it blocks nothing.
+var NUDGE_ID = 'com.ecklf.luma.rescan';
 
 function read(file) {
   return fs.readFileSync(file, 'utf8');
@@ -51,6 +64,42 @@ function pause() {
   run('/bin/sleep', ['1']);
 }
 
+// BusyBox sleep may not take fractions; Atomics.wait blocks for milliseconds without a child.
+function pauseBriefly() {
+  if (typeof Atomics === 'object' && typeof SharedArrayBuffer === 'function') {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+  } else {
+    pause();
+  }
+}
+
+// Seconds since the TV started, for the boot log.
+function stamp(message) {
+  var uptime = '?';
+  try {
+    uptime = read('/proc/uptime').split(' ')[0];
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  console.log('Luma Home: ' + message + ' at ' + uptime + ' s');
+}
+
+// At a cold boot the hook can start before SAM answers. Waits up to 60 s.
+function waitForSam() {
+  var last = 'no reply';
+  for (var i = 0; i < 240; i++) {
+    try {
+      var reply = luna('getForegroundAppInfo', {});
+      if (reply.returnValue === true) return;
+      last = JSON.stringify(reply);
+    } catch (error) {
+      last = error.message;
+    }
+    pauseBriefly();
+  }
+  throw new Error('SAM did not answer within 60 s: ' + last);
+}
+
 function excerpt(output) {
   return (
     String(output || '')
@@ -60,7 +109,7 @@ function excerpt(output) {
   );
 }
 
-function luna(method, payload) {
+function luna(method, payload, service) {
   // -n prints one JSON reply to stdout. -t is timing mode and logs the
   // payload to stderr instead, leaving timing summaries on stdout.
   var result = spawnSync(
@@ -70,7 +119,7 @@ function luna(method, payload) {
       '1',
       '-w',
       '4000',
-      'luna://com.webos.applicationManager/' + method,
+      'luna://' + (service || 'com.webos.applicationManager') + '/' + method,
       JSON.stringify(payload)
     ],
     {
@@ -181,7 +230,7 @@ function unmountExe() {
 }
 
 function homeMethod(release, stock) {
-  if (/release\s+(10|11)\./.test(release)) return 'manifest';
+  if (/release\s+(9|10|11)\./.test(release)) return 'manifest';
   if (
     /release\s+[56]\./.test(release) &&
     stock &&
@@ -190,7 +239,7 @@ function homeMethod(release, stock) {
     stock.nativeLifeCycleInterfaceVersion === 2
   )
     return 'executable';
-  throw new Error('This Home integration currently targets webOS 5/6 and 25/26 (10.x/11.x)');
+  throw new Error('This Home integration currently targets webOS 5/6, 9 and 25/26 (10.x/11.x)');
 }
 
 function releaseHome() {
@@ -207,7 +256,41 @@ function releaseHome() {
   throw new Error('Could not release Home: ' + JSON.stringify(result));
 }
 
-function reread(expected) {
+function setBlockedList(list) {
+  var configs = {};
+  configs[BLOCKED_LIST] = list;
+  return luna('setConfigs', { configs: configs }, CONFIG_SERVICE);
+}
+
+// Returns false where the TV has no blocked-app list to change.
+function nudgeBlockedList() {
+  var reply = luna('getConfigs', { configNames: [BLOCKED_LIST] }, CONFIG_SERVICE);
+  var list = reply.configs && reply.configs[BLOCKED_LIST];
+  if (!Array.isArray(list)) return false;
+  // An interrupted earlier nudge may have left the ID in.
+  var previous = list.filter(function (id) {
+    return id !== NUDGE_ID;
+  });
+  try {
+    accepted(
+      setBlockedList(previous.concat([NUDGE_ID])),
+      'Change the blocked-app list for a manifest refresh'
+    );
+    pause();
+  } finally {
+    for (var i = 0; i < 3; i++) {
+      try {
+        if (setBlockedList(previous).returnValue === true) break;
+      } catch (error) {
+        console.error('Luma Home: ' + error.message);
+      }
+      pause();
+    }
+  }
+  return true;
+}
+
+function blockAndRelease() {
   var payload = { id: HOME };
   var schema = '/etc/palm/schemas/sam/applicationManager.blockSystemApp.schema';
   if (fs.existsSync(schema) && read(schema).indexOf('"forceBlockSystemApp"') !== -1) {
@@ -222,20 +305,35 @@ function reread(expected) {
   } finally {
     releaseHome();
   }
-  for (var i = 0; i < 15; i++) {
-    var info = accepted(luna('getAppInfo', { id: HOME }), 'Read Home manifest').appInfo;
-    if (
-      info &&
-      info.type === expected.type &&
-      (typeof expected.main !== 'string' ||
-        path.basename(info.main || '') === path.basename(expected.main)) &&
-      (expected.main !== 'luma' ||
-        (Array.isArray(info.appCategory) && info.appCategory.indexOf('home') !== -1))
-    )
-      return;
-    pause();
+}
+
+function samHas(expected) {
+  var info = accepted(luna('getAppInfo', { id: HOME }), 'Read Home manifest').appInfo;
+  return !!(
+    info &&
+    info.type === expected.type &&
+    (typeof expected.main !== 'string' ||
+      path.basename(info.main || '') === path.basename(expected.main)) &&
+    (expected.main !== 'luma' ||
+      (Array.isArray(info.appCategory) && info.appCategory.indexOf('home') !== -1))
+  );
+}
+
+function waitForManifest(expected) {
+  for (var i = 0; i < 60; i++) {
+    if (samHas(expected)) return true;
+    pauseBriefly();
   }
-  throw new Error('SAM did not read the expected Home manifest');
+  return false;
+}
+
+function reread(expected) {
+  if (/release\s+9\./.test(read('/etc/starfish-release'))) {
+    if (nudgeBlockedList() && waitForManifest(expected)) return;
+    console.error('Luma Home: SAM did not rescan, blocking and releasing Home instead');
+  }
+  blockAndRelease();
+  if (!waitForManifest(expected)) throw new Error('SAM did not read the expected Home manifest');
 }
 
 function foreground() {
@@ -326,9 +424,9 @@ function openExecutableHome() {
   throw new Error('Home did not come to the front');
 }
 
-function hookOwned() {
+function hookOwned(hook) {
   try {
-    return fs.readlinkSync(HOOK) === STATE + '/home.sh';
+    return fs.readlinkSync(hook || HOOK) === STATE + '/home.sh';
   } catch (error) {
     if (error.code === 'ENOENT' || error.code === 'EINVAL') return false;
     throw error;
@@ -383,6 +481,7 @@ function restore(config) {
     console.error('Luma Home: ' + error.message + ', restoring the files first');
   }
   if (foreignMount()) throw new Error('Another integration is mounted over LG Home');
+  if (fs.existsSync(MARKER)) fs.unlinkSync(MARKER);
   if (mounted()) {
     try {
       run('/bin/umount', [TARGET]);
@@ -443,11 +542,17 @@ function apply(config, open) {
   try {
     if (!mounted()) run('/bin/mount', ['--bind', STAGE, TARGET]);
     if (!mounted()) throw new Error('The Home bind mount did not take');
+    fs.writeFileSync(MARKER, APP + '\n', { mode: 420 });
+    stamp('mounted');
     reread(json(STAGE + '/appinfo.json'));
+    stamp('SAM has the Luma manifest');
     stopHome(config.appDir);
     // Only replace the screen if Home is still in front. During boot the
     // owner may have already selected an input or another app.
-    if (open || (front === HOME && foreground() === HOME)) launchHome();
+    if (open || (front === HOME && foreground() === HOME)) {
+      launchHome();
+      stamp('Luma opened as Home');
+    }
   } catch (error) {
     try {
       restore(config);
@@ -471,6 +576,7 @@ function installHook() {
   mkdir('/var/lib/webosbrew');
   mkdir('/var/lib/webosbrew/init.d');
   if (!hookOwned()) fs.symlinkSync(STATE + '/home.sh', HOOK);
+  if (hookOwned(OLD_HOOK)) fs.unlinkSync(OLD_HOOK);
 }
 
 function install(appDir) {
@@ -485,7 +591,7 @@ function install(appDir) {
   if (foreignMount()) throw new Error('Another integration is mounted over LG Home');
   var exeRoot = exeMount();
   if (exeRoot && !exeOwned(exeRoot)) throw new Error('Another integration is mounted over LG Home');
-  if (exists(HOOK) && !hookOwned()) throw new Error('64-luma-home is already in use');
+  if (exists(HOOK) && !hookOwned()) throw new Error('10-luma-home is already in use');
   if (exists('/var/lib/webosbrew/init.d/65-luma')) {
     throw new Error('Disable the standalone cold-boot hook with autostart.sh disable first');
   }
@@ -556,12 +662,16 @@ try {
     if (!fs.existsSync(CONFIG)) throw new Error('Luma Home has not been enabled');
     var config = json(CONFIG);
     if (command === 'apply' && config.enabled) {
+      stamp('boot hook started');
+      waitForSam();
+      stamp('SAM answers');
       apply(config, false);
     } else {
       config.enabled = false;
       writeJson(CONFIG, config);
       restore(config);
       if (hookOwned()) fs.unlinkSync(HOOK);
+      if (hookOwned(OLD_HOOK)) fs.unlinkSync(OLD_HOOK);
       console.log('LG Home restored. Luma Home boot integration disabled.');
     }
   } else {

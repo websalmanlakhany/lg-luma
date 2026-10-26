@@ -80,7 +80,8 @@ test('webOS 5/6 with a native lifecycle-v2 LG Home uses the executable method', 
   assert.equal(homeMethod('Rockhopper release 6.5.3-10', lgHome), 'executable');
   assert.equal(homeMethod('Rockhopper release 10.2.2-58', null), 'manifest');
   assert.equal(homeMethod('Rockhopper release 11.2.0-1', null), 'manifest');
-  assert.throws(() => homeMethod('Rockhopper release 9.2.1', lgHome), /targets webOS/);
+  assert.equal(homeMethod('Rockhopper release 9.2.1', lgHome), 'manifest');
+  assert.throws(() => homeMethod('Rockhopper release 8.3.0', lgHome), /targets webOS/);
   assert.throws(
     () => homeMethod('Rockhopper release 5.6.2', { ...lgHome, nativeLifeCycleInterfaceVersion: 1 }),
     /targets webOS/,

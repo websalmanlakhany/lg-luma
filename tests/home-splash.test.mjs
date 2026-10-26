@@ -126,7 +126,7 @@ test('apply refreshes the staged image even while the Home mount is active', () 
   });
   mock.context.apply({ appDir: mock.appDir }, false);
   assert.equal(mock.files.get(`${stage}/splash.png`).toString(), 'prism');
-  assert.deepEqual(mock.writes, [`${stage}/splash.png.new`]);
+  assert.deepEqual(mock.writes, [`${stage}/splash.png.new`, '/var/run/luma-home']);
   assert.deepEqual(calls, ['reread', 'stop']);
 });
 

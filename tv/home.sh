@@ -17,7 +17,7 @@ if [ "$COMMAND" = enable ] && grep -q 'release [56]\.' /etc/starfish-release 2>/
     "  3. Bind-mount Luma's executable over /usr/bin/com.webos.app.home." \
     "     LG's Home manifest and role stay; Luma registers with SAM itself." \
     '  4. Stop the previous Home process and launch Luma as Home.' \
-    '  5. Install /var/lib/webosbrew/init.d/64-luma-home to reapply the mount at cold boot.' \
+    '  5. Install /var/lib/webosbrew/init.d/10-luma-home to reapply the mount at cold boot.' \
     '' \
     "LG Home's original executable remains underneath the mount." \
     'Home Auto Launch and Quick Start+ retain their current settings.' \
@@ -29,9 +29,11 @@ elif [ "$COMMAND" = enable ]; then
     '  1. Close any running normal Luma instance.' \
     "  2. Create $STATE with integration scripts, saved state and a staged native Home app linked to Luma." \
     "  3. Bind-mount $STATE/app over /usr/palm/applications/com.webos.app.home." \
-    '  4. Temporarily block and release Home so SAM rereads its manifest.' \
+    '  4. Make SAM reread the Home manifest: on webOS 9 by adding an unused ID to the' \
+    "     TV's blocked-app list and removing it again, otherwise (or if that fails) by" \
+    '     temporarily blocking and releasing Home.' \
     '  5. Stop the previous Home process and launch Luma as Home.' \
-    '  6. Install /var/lib/webosbrew/init.d/64-luma-home to reapply the mount at cold boot.' \
+    '  6. Install /var/lib/webosbrew/init.d/10-luma-home to reapply the mount at cold boot.' \
     '' \
     "LG Home's original files remain underneath the mount." \
     'Home Auto Launch and Quick Start+ retain their current settings.' \
@@ -57,7 +59,6 @@ if [ ! -d "$STATE" ]; then mkdir -m 755 "$STATE" || exit 1; fi
 [ "$(stat -c %u "$STATE")" = 0 ] || exit 1
 if [ "$COMMAND" = boot ]; then
   (
-    sleep 5
     exec sh "$STATE/home.sh" apply
   ) </dev/null >>"$STATE/boot.log" 2>&1 &
   exit 0
