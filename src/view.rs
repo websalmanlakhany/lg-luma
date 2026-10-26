@@ -1,8 +1,8 @@
 //! Screen geometry and styling mirror the web UI's 1920×1080 / 16px-rem layout.
 use crate::{
     i18n::Language,
-    model::{App, BACKGROUNDS, CATEGORIES, Input, InputMode},
-    renderer::{Color, Draw, TextStyle, WHITE},
+    model::{App, BACKGROUNDS, CATEGORIES, Input, InputMode, LIVE_BACKGROUNDS},
+    renderer::{Color, Draw, LIVE_FPS, TextStyle, WHITE},
     state::{
         APPS_COLUMNS, Control, HOME_FADE_LEFT, HOME_FADE_RIGHT, HOME_STRIP_LEFT, HOME_STRIP_RIGHT,
         HOME_TILE_PITCH, HOME_TILE_WIDTH, KEYS, Overlay, Page, Rect, SYSTEM_SECTION, State,
@@ -271,6 +271,139 @@ pub fn navigation(assets: &Assets, language: Language) -> Navigation {
     }
 }
 
+/// How far a drifting photo reaches past each screen edge, in logical pixels.
+const DRIFT: f32 = 40.;
+/// Unrelated periods, in seconds, so the drift does not retrace a short loop.
+const DRIFT_PERIODS: (f64, f64) = (307., 419.);
+/// Pixel shift steps through these offsets, one every SHIFT_SECONDS.
+const SHIFT_ORBIT: [(f32, f32); 8] = [
+    (0., 0.),
+    (4., -3.),
+    (6., 2.),
+    (2., 6.),
+    (-3., 5.),
+    (-6., 0.),
+    (-4., -5.),
+    (1., -6.),
+];
+const SHIFT_SECONDS: i64 = 120;
+
+fn seconds(now: OffsetDateTime) -> f64 {
+    now.unix_timestamp_nanos() as f64 / 1e9
+}
+
+fn live_frame(state: &State, now: OffsetDateTime) -> Option<u64> {
+    if !LIVE_BACKGROUNDS.contains(&state.preferences.background.as_str()) {
+        return None;
+    }
+    Some(if state.preferences.reduced_motion {
+        0
+    } else {
+        (seconds(now) * LIVE_FPS) as u64
+    })
+}
+
+/// Whole logical pixels: the photo then repaints about once a second instead of every frame.
+fn drift(state: &State, now: OffsetDateTime) -> Option<(f32, f32)> {
+    if !state.preferences.wallpaper_drift
+        || state.preferences.reduced_motion
+        || LIVE_BACKGROUNDS.contains(&state.preferences.background.as_str())
+    {
+        return None;
+    }
+    let t = seconds(now);
+    let wave = |period: f64| {
+        let turn = (t % period) / period * std::f64::consts::TAU;
+        (-f64::from(DRIFT) * (1. + turn.sin())).round() as f32
+    };
+    Some((wave(DRIFT_PERIODS.0), wave(DRIFT_PERIODS.1)))
+}
+
+/// The wallpaper's image and where it is drawn. A live wallpaper's path carries its frame after
+/// `#`; the renderer draws that frame with a shader and falls back to the image without it.
+fn wallpaper(state: &State, assets: &Assets, id: &str, now: OffsetDateTime) -> (String, Rect) {
+    let path = assets.path(format!("wallpapers/{id}.jpg"));
+    let screen = Rect::new(0., 0., 1920., 1080.);
+    if LIVE_BACKGROUNDS.contains(&id) {
+        let frame = live_frame(state, now).unwrap_or(0);
+        return (format!("{path}#{frame}"), screen);
+    }
+    match drift(state, now) {
+        Some((x, y)) => (
+            path,
+            Rect::new(x, y, 1920. + 2. * DRIFT, 1080. + 2. * DRIFT),
+        ),
+        None => (path, screen),
+    }
+}
+
+/// The interface's offset from its usual place while pixel shift is on.
+pub fn pixel_shift(state: &State, now: OffsetDateTime) -> (f32, f32) {
+    if !state.preferences.pixel_shift {
+        return (0., 0.);
+    }
+    let step = now.unix_timestamp().div_euclid(SHIFT_SECONDS);
+    SHIFT_ORBIT[step.rem_euclid(SHIFT_ORBIT.len() as i64) as usize]
+}
+
+/// A live wallpaper's frame, a photo's drift and the pixel shift.
+pub type Motion = (Option<u64>, Option<(f32, f32)>, (f32, f32));
+
+/// Changes whenever the wallpaper or interface has moved, so the main loop knows to redraw.
+pub fn motion(state: &State, now: OffsetDateTime) -> Motion {
+    (
+        live_frame(state, now),
+        drift(state, now),
+        pixel_shift(state, now),
+    )
+}
+
+/// How long until a live wallpaper's next frame, while one is animating.
+pub fn next_frame_in(state: &State, now: OffsetDateTime) -> Option<std::time::Duration> {
+    if live_frame(state, now).is_none() || state.preferences.reduced_motion {
+        return None;
+    }
+    let ahead = 1. - (seconds(now) * LIVE_FPS).fract();
+    Some(std::time::Duration::from_secs_f64(ahead / LIVE_FPS))
+}
+
+/// Moves everything but full-screen layers by `offset`, hit targets included.
+pub fn shift(scene: &mut Scene, (dx, dy): (f32, f32)) {
+    if dx == 0. && dy == 0. {
+        return;
+    }
+    let shifted = |rect: &mut Rect| {
+        rect.x += dx;
+        rect.y += dy;
+    };
+    for draw in &mut scene.draw {
+        match draw {
+            Draw::Shape(rect, ..)
+            | Draw::RoundedGradient(rect, ..)
+            | Draw::Image(_, rect, ..)
+            | Draw::TintedImage(_, rect, ..)
+                if covers_screen(rect) => {}
+            Draw::Shape(rect, ..)
+            | Draw::RoundedGradient(rect, ..)
+            | Draw::Shadow(rect, ..)
+            | Draw::Text(_, rect, ..)
+            | Draw::Image(_, rect, ..)
+            | Draw::TintedImage(_, rect, ..)
+            | Draw::AppImage(_, rect, _)
+            | Draw::Clip(Some(rect)) => shifted(rect),
+            Draw::EdgeFade(Some(fade)) => fade.iter_mut().for_each(|y| *y += dy),
+            Draw::EdgeFadeX(Some(fade)) => fade.iter_mut().for_each(|x| *x += dx),
+            Draw::Clip(None) | Draw::EdgeFade(None) | Draw::EdgeFadeX(None) => {}
+        }
+    }
+    for control in &mut scene.controls {
+        shifted(&mut control.rect);
+    }
+    if let Some(modal) = &mut scene.modal {
+        shifted(modal);
+    }
+}
+
 /// Fully shown Recents is drawn instead of the page, which is then not part of the scene.
 pub fn recents_replaces_page(state: &State) -> bool {
     state.recents_open() && state.recents.visibility == 1.
@@ -284,28 +417,20 @@ pub fn scene_with_pill(
     now: OffsetDateTime,
 ) -> Scene {
     let mut out = Scene::new();
+    let (path, rect) = wallpaper(state, assets, &state.preferences.background, now);
     if let Some((previous, start)) = &state.previous_background {
-        out.image(
-            assets.path(format!("wallpapers/{previous}.jpg")),
-            Rect::new(0., 0., 1920., 1080.),
-            0.,
-            false,
-        );
+        let (previous_path, previous_rect) = wallpaper(state, assets, previous, now);
+        out.image(previous_path, previous_rect, 0., false);
         let alpha = (start.elapsed().as_secs_f32() / 0.4).min(1.);
         out.draw.push(Draw::TintedImage(
-            assets.path(format!("wallpapers/{}.jpg", state.preferences.background)),
-            Rect::new(0., 0., 1920., 1080.),
+            path,
+            rect,
             0.,
             false,
             [1., 1., 1., alpha],
         ));
     } else {
-        out.image(
-            assets.path(format!("wallpapers/{}.jpg", state.preferences.background)),
-            Rect::new(0., 0., 1920., 1080.),
-            0.,
-            false,
-        );
+        out.image(path, rect, 0., false);
     }
     let content_start = out.draw.len();
     if recents_replaces_page(state) {
@@ -1955,6 +2080,28 @@ fn settings(out: &mut Scene, state: &State, assets: &Assets) {
                     }),
                     true,
                 ),
+                (
+                    8,
+                    "wallpaperDrift",
+                    "sparkles",
+                    Some(language.t(if state.preferences.wallpaper_drift {
+                        "stateOn"
+                    } else {
+                        "stateOff"
+                    })),
+                    false,
+                ),
+                (
+                    9,
+                    "pixelShift",
+                    "grid",
+                    Some(language.t(if state.preferences.pixel_shift {
+                        "stateOn"
+                    } else {
+                        "stateOff"
+                    })),
+                    false,
+                ),
             ]
             .into_iter()
             .enumerate()
@@ -2745,11 +2892,16 @@ fn toast(out: &mut Scene, state: &State, assets: &Assets, notice: &str) {
 }
 
 /// A corner-less, borderless fill of the whole logical screen.
+fn covers_screen(r: &Rect) -> bool {
+    r.x <= 0. && r.y <= 0. && r.x + r.w >= 1920. && r.y + r.h >= 1080.
+}
+
 fn full_screen_fill(draw: &Draw) -> bool {
-    let whole = |r: &Rect| r.x <= 0. && r.y <= 0. && r.x + r.w >= 1920. && r.y + r.h >= 1080.;
     match draw {
-        Draw::Shape(rect, radius, border, _) => whole(rect) && *radius <= 0. && *border <= 0.,
-        Draw::RoundedGradient(rect, radius, ..) => whole(rect) && *radius <= 0.,
+        Draw::Shape(rect, radius, border, _) => {
+            covers_screen(rect) && *radius <= 0. && *border <= 0.
+        }
+        Draw::RoundedGradient(rect, radius, ..) => covers_screen(rect) && *radius <= 0.,
         _ => false,
     }
 }

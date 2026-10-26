@@ -10,6 +10,7 @@ use gl::types::*;
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
+    f64::consts::TAU,
     ffi::{CStr, CString},
     path::{Path, PathBuf},
     sync::Arc,
@@ -21,6 +22,13 @@ pub const WHITE: Color = [0.96, 0.96, 0.96, 1.];
 const GLYPH_GEOMETRY_BUDGET: usize = 8 * 1024 * 1024;
 const TEXT_GEOMETRY_BUDGET: usize = 32 * 1024 * 1024;
 const TEXTURE_BUDGET: usize = 48 * 1024 * 1024;
+/// Live wallpapers advance at this rate. Their motion is slow enough that more frames would
+/// only keep the TV's GPU busy.
+pub const LIVE_FPS: f64 = 10.;
+/// Live wallpapers are soft gradients, drawn at a sixth of 1080p's pixels and scaled up.
+const LIVE_SIZE: (u32, u32) = (640, 360);
+/// Seconds per turn of each u_phase component.
+const LIVE_PERIODS: [f64; 4] = [67., 97., 131., 173.];
 
 #[derive(Clone, Copy, Debug)]
 pub struct TextStyle {
@@ -80,6 +88,24 @@ struct Texture {
     height: u32,
     frame: u64,
 }
+/// A live wallpaper's shader and the texture it draws its current frame into.
+struct Live {
+    program: GLuint,
+    framebuffer: GLuint,
+    quad: GLuint,
+    texture: Texture,
+    frame: Option<u64>,
+}
+impl Drop for Live {
+    fn drop(&mut self) {
+        unsafe {
+            gl::DeleteFramebuffers(1, &self.framebuffer);
+            gl::DeleteBuffers(1, &self.quad);
+            gl::DeleteProgram(self.program);
+        }
+    }
+}
+
 impl Drop for Texture {
     fn drop(&mut self) {
         unsafe {
@@ -336,6 +362,8 @@ pub struct Renderer {
     glyphs: HashMap<(char, u16), Glyph>,
     text_runs: HashMap<TextKey, TextRun>,
     textures: HashMap<String, Option<Texture>>,
+    live: HashMap<String, Option<Live>>,
+    shader_prefixes: (String, String),
     vectors: HashMap<String, Option<vector::Mesh>>,
     artwork_variants: HashMap<String, String>,
     vertices: Vec<f32>,
@@ -392,6 +420,7 @@ impl Renderer {
         } else {
             "#version 150\n#define varying in\n#define texture2D texture\nout vec4 out_color;\n#define gl_FragColor out_color\n#define PAINT_PRECISION\n".into()
         };
+        let shader_prefixes = (vertex_prefix.clone(), fragment_prefix.clone());
         let program = link(
             &(vertex_prefix.clone() + include_str!("shaders/paint.vert")),
             &(fragment_prefix.clone() + include_str!("shaders/paint.frag")),
@@ -457,6 +486,8 @@ impl Renderer {
             glyphs: HashMap::new(),
             text_runs: HashMap::new(),
             textures: HashMap::new(),
+            live: HashMap::new(),
+            shader_prefixes,
             vectors: HashMap::new(),
             artwork_variants: HashMap::new(),
             vertices: Vec::with_capacity(65536),
@@ -949,6 +980,24 @@ impl Renderer {
             self.vector_image(path, rect, contain, tint);
             return;
         }
+        // A live wallpaper: its image path, then the frame to show (see view::wallpaper).
+        let path = match path.split_once('#') {
+            Some((image, frame)) => {
+                let name = Path::new(image).file_stem().unwrap_or_default();
+                if let (Some(name), Ok(frame)) = (name.to_str(), frame.parse())
+                    && let Some(id) = self.live_texture(name, frame)
+                {
+                    if scrims.is_empty() {
+                        self.quad(rect, [0., 0., 1., 1.], plain_radius(radius), 0., tint, id);
+                    } else {
+                        self.folded_quad(rect, id, scrims);
+                    }
+                    return;
+                }
+                image
+            }
+            None => path,
+        };
         let path = if self.stats.viewport.scale > 1.
             && self.info.max_texture_size >= 3840
             && Path::new(path)
@@ -1012,6 +1061,109 @@ impl Renderer {
             self.quad(rect, [0., 0., 1., 1.], plain_radius(radius), 0., tint, id);
         } else {
             self.folded_quad(rect, id, scrims);
+        }
+    }
+
+    /// The texture holding `frame` of the live wallpaper `name`, drawn now if it is not there
+    /// yet. None when there is no such shader or this GPU cannot run it.
+    fn live_texture(&mut self, name: &str, frame: u64) -> Option<GLuint> {
+        let art = match name {
+            "aurora" => include_str!("shaders/live-aurora.frag"),
+            "ember" => include_str!("shaders/live-ember.frag"),
+            _ => return None,
+        };
+        if !self.live.contains_key(name) {
+            let live = self.create_live(art);
+            if let Err(error) = &live {
+                eprintln!("Live wallpaper {name}: {error}");
+            }
+            self.live.insert(name.into(), live.ok());
+        }
+        let vao = self.vao;
+        let live = self.live.get_mut(name)?.as_mut()?;
+        if live.frame != Some(frame) {
+            let t = frame as f64 / LIVE_FPS;
+            let phase = LIVE_PERIODS.map(|period| ((t % period) / period * TAU) as f32);
+            unsafe {
+                let mut previous = 0;
+                gl::GetIntegerv(gl::FRAMEBUFFER_BINDING, &mut previous);
+                gl::BindFramebuffer(gl::FRAMEBUFFER, live.framebuffer);
+                gl::Viewport(0, 0, LIVE_SIZE.0 as i32, LIVE_SIZE.1 as i32);
+                gl::Disable(gl::SCISSOR_TEST);
+                gl::Disable(gl::BLEND);
+                if vao != 0 {
+                    gl::BindVertexArray(vao);
+                }
+                gl::UseProgram(live.program);
+                gl::Uniform4f(
+                    gl::GetUniformLocation(live.program, c"u_phase".as_ptr()),
+                    phase[0],
+                    phase[1],
+                    phase[2],
+                    phase[3],
+                );
+                gl::BindBuffer(gl::ARRAY_BUFFER, live.quad);
+                // render() points the paint attributes at its own buffer again before drawing.
+                for index in 1..5 {
+                    gl::DisableVertexAttribArray(index);
+                }
+                gl::EnableVertexAttribArray(0);
+                gl::VertexAttribPointer(0, 2, gl::FLOAT, gl::FALSE, 8, std::ptr::null());
+                gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
+                gl::Enable(gl::BLEND);
+                gl::BindFramebuffer(gl::FRAMEBUFFER, previous as GLuint);
+            }
+            live.frame = Some(frame);
+        }
+        live.texture.frame = self.frame;
+        Some(live.texture.id)
+    }
+
+    fn create_live(&self, art: &str) -> Result<Live, String> {
+        let (vertex_prefix, fragment_prefix) = &self.shader_prefixes;
+        let program = link(
+            &(vertex_prefix.clone() + include_str!("shaders/live.vert")),
+            &(fragment_prefix.clone() + include_str!("shaders/live.frag") + art),
+            &[c"a_position"],
+        )?;
+        let texture = texture(LIVE_SIZE.0, LIVE_SIZE.1, &[]);
+        let (mut framebuffer, mut quad) = (0, 0);
+        let complete = unsafe {
+            gl::GenFramebuffers(1, &mut framebuffer);
+            gl::GenBuffers(1, &mut quad);
+            let mut previous = 0;
+            gl::GetIntegerv(gl::FRAMEBUFFER_BINDING, &mut previous);
+            gl::BindFramebuffer(gl::FRAMEBUFFER, framebuffer);
+            gl::FramebufferTexture2D(
+                gl::FRAMEBUFFER,
+                gl::COLOR_ATTACHMENT0,
+                gl::TEXTURE_2D,
+                texture.id,
+                0,
+            );
+            let status = gl::CheckFramebufferStatus(gl::FRAMEBUFFER);
+            gl::BindFramebuffer(gl::FRAMEBUFFER, previous as GLuint);
+            let corners: [f32; 8] = [-1., -1., 1., -1., -1., 1., 1., 1.];
+            gl::BindBuffer(gl::ARRAY_BUFFER, quad);
+            gl::BufferData(
+                gl::ARRAY_BUFFER,
+                size_of_val(&corners) as isize,
+                corners.as_ptr().cast(),
+                gl::STATIC_DRAW,
+            );
+            status == gl::FRAMEBUFFER_COMPLETE
+        };
+        let live = Live {
+            program,
+            framebuffer,
+            quad,
+            texture,
+            frame: None,
+        };
+        if complete {
+            Ok(live)
+        } else {
+            Err("framebuffer incomplete".into())
         }
     }
 

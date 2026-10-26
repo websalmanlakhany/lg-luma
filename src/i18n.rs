@@ -105,6 +105,8 @@ impl Language {
             "dunes" => "monumentValley",
             "san-francisco" => "sanFrancisco",
             "northern-lights" => "northernLights",
+            "aurora" => "liveAurora",
+            "ember" => "liveEmber",
             _ => id,
         })
     }

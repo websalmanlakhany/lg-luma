@@ -406,11 +406,15 @@ fn compose(
     now: OffsetDateTime,
 ) -> view::Scene {
     let scene = view::scene_with_pill(state, assets, pill, width, now);
-    if !state.pointer && state.overlay.is_none() && state.reveal_focus(&scene.controls) {
-        view::scene_with_pill(state, assets, pill, width, now)
-    } else {
-        scene
-    }
+    let mut scene =
+        if !state.pointer && state.overlay.is_none() && state.reveal_focus(&scene.controls) {
+            view::scene_with_pill(state, assets, pill, width, now)
+        } else {
+            scene
+        };
+    // After reveal_focus, which keeps working on the interface's usual positions.
+    view::shift(&mut scene, view::pixel_shift(state, now));
+    scene
 }
 
 fn weather_tick(state: &mut State, service: &weather_service::Service, visible: bool) {
@@ -857,6 +861,7 @@ fn run() -> Result<(), String> {
     let mut pill_width = initial_nav.items[0].w;
     let mut last_frame = Instant::now();
     let mut last_minute = None;
+    let mut last_motion = None;
     let mut frame = 0u64;
     let mut visible = true;
     let mut running = true;
@@ -885,6 +890,11 @@ fn run() -> Result<(), String> {
         };
         if last_minute != Some(clock_slot) {
             last_minute = Some(clock_slot);
+            state.dirty = true;
+        }
+        let motion = view::motion(&state, now);
+        if last_motion != Some(motion) {
+            last_motion = Some(motion);
             state.dirty = true;
         }
         state.tick();
@@ -1571,6 +1581,10 @@ fn run() -> Result<(), String> {
             500
         } else {
             100
+        };
+        let timeout = match view::next_frame_in(&state, now) {
+            Some(next) if visible => timeout.min(next.as_millis() as u32 + 1),
+            _ => timeout,
         };
         queued_event = sdl_events::wait(&mut events, timeout, webos);
     }
