@@ -10,7 +10,11 @@ var HOME = 'com.webos.app.home';
 var STATE = '/var/lib/luma-home';
 var STAGE = STATE + '/app';
 var TARGET = '/usr/palm/applications/' + HOME;
-var HOOK = '/var/lib/webosbrew/init.d/64-luma-home';
+// run-parts starts the hooks in name order, one at a time. Ahead of other homebrew hooks (Glasshouse's
+// 50-tvweb runs for about 6 s on a G4, webOS 9), Luma takes Home that much sooner after a cold boot.
+var HOOK = '/var/lib/webosbrew/init.d/10-luma-home';
+// Where earlier releases installed it.
+var OLD_HOOK = '/var/lib/webosbrew/init.d/64-luma-home';
 var CONFIG = STATE + '/state.json';
 // webOS 5/6 (method "executable"): SAM cannot reread a mounted manifest there, but LG Home is a
 // native lifecycle-v2 program whose LS2 role is bound to this executable path. Mounting Luma's
@@ -420,9 +424,9 @@ function openExecutableHome() {
   throw new Error('Home did not come to the front');
 }
 
-function hookOwned() {
+function hookOwned(hook) {
   try {
-    return fs.readlinkSync(HOOK) === STATE + '/home.sh';
+    return fs.readlinkSync(hook || HOOK) === STATE + '/home.sh';
   } catch (error) {
     if (error.code === 'ENOENT' || error.code === 'EINVAL') return false;
     throw error;
@@ -572,6 +576,7 @@ function installHook() {
   mkdir('/var/lib/webosbrew');
   mkdir('/var/lib/webosbrew/init.d');
   if (!hookOwned()) fs.symlinkSync(STATE + '/home.sh', HOOK);
+  if (hookOwned(OLD_HOOK)) fs.unlinkSync(OLD_HOOK);
 }
 
 function install(appDir) {
@@ -586,7 +591,7 @@ function install(appDir) {
   if (foreignMount()) throw new Error('Another integration is mounted over LG Home');
   var exeRoot = exeMount();
   if (exeRoot && !exeOwned(exeRoot)) throw new Error('Another integration is mounted over LG Home');
-  if (exists(HOOK) && !hookOwned()) throw new Error('64-luma-home is already in use');
+  if (exists(HOOK) && !hookOwned()) throw new Error('10-luma-home is already in use');
   if (exists('/var/lib/webosbrew/init.d/65-luma')) {
     throw new Error('Disable the standalone cold-boot hook with autostart.sh disable first');
   }
@@ -666,6 +671,7 @@ try {
       writeJson(CONFIG, config);
       restore(config);
       if (hookOwned()) fs.unlinkSync(HOOK);
+      if (hookOwned(OLD_HOOK)) fs.unlinkSync(OLD_HOOK);
       console.log('LG Home restored. Luma Home boot integration disabled.');
     }
   } else {
