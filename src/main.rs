@@ -54,6 +54,8 @@ use time::OffsetDateTime;
 #[derive(Default)]
 struct Options {
     webos_home: bool,
+    // Started by webOS's preload manager ("preload" in the launch metadata), to wait hidden.
+    webos_preload: bool,
     assets: Option<PathBuf>,
     preferences: Option<PathBuf>,
     screenshot: Option<PathBuf>,
@@ -93,6 +95,10 @@ impl Options {
                     || metadata.get("appId").and_then(serde_json::Value::as_str)
                         == Some(platform::HOME_ID)
                     || platform::runs_as_lg_home();
+                result.webos_preload = metadata
+                    .get("preload")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some();
             }
             eprintln!("Luma webOS launch parameters accepted");
         }
@@ -666,6 +672,13 @@ fn run() -> Result<(), String> {
     attributes.set_alpha_size(8);
     attributes.set_depth_size(0);
     attributes.set_stencil_size(0);
+    // webOS's preload manager starts Home in the background whenever it is not running, which
+    // happens during playback when memory runs low. Shown at once, Luma covered the app playing
+    // and cut its video (G4, webOS 9). It stays hidden until sam's relaunch (the Home key).
+    let start_hidden = webos && options.webos_home && options.webos_preload;
+    if start_hidden {
+        eprintln!("Luma started preloaded; hidden until relaunched");
+    }
     let requested = options.resolution.unwrap_or(if webos {
         Size::HD
     } else {
@@ -674,6 +687,9 @@ fn run() -> Result<(), String> {
     let create_window = || {
         let mut builder = video.window("Luma", requested.width, requested.height);
         builder.opengl().allow_highdpi().position_centered();
+        if start_hidden {
+            builder.hidden();
+        }
         if options.fullscreen || (webos && options.resolution.is_none()) {
             builder.fullscreen_desktop();
         } else if webos {
@@ -853,7 +869,7 @@ fn run() -> Result<(), String> {
         };
     // Whether a staged Home's relaunch reached the front; see platform::ForegroundCheck.
     let mut foreground = platform::ForegroundCheck::default();
-    let mut focused = true;
+    let mut focused = !start_hidden;
     let mut press: Option<Press> = None;
     let mut back_button = BackButton::default();
     let initial_nav = view::navigation(&assets, state.preferences.language);
@@ -863,7 +879,7 @@ fn run() -> Result<(), String> {
     let mut last_minute = None;
     let mut last_motion = None;
     let mut frame = 0u64;
-    let mut visible = true;
+    let mut visible = !start_hidden;
     let mut running = true;
     let mut queued_event = None;
     let mut text_active = false;

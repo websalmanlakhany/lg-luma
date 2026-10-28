@@ -613,6 +613,11 @@ handling as v2.
 - The child gets `SIGKILL` when the thread that started it (Luma's main thread) ends
   (`PR_SET_PDEATHSIG`, re-checked against the parent PID after arming). A registration left with
   nobody handling its events leaves the Home key dead and a black screen after leaving an app.
+- Launched by webOS's preload manager (`"preload"` in the launch metadata, caller
+  `com.webos.service.preloadmanager`), Luma creates its window hidden and draws nothing until
+  `relaunch`. The preload manager starts Home again whenever it is not running, which happens
+  during playback when memory runs low; shown at once, Luma covered the app playing and cut its
+  video (G4, webOS 9).
 - On `relaunch` Luma restores, shows and raises its window (on both lifecycle paths). If a
   relaunch arrives while Luma is not both focused and visible, `platform::ForegroundCheck` waits
   3 s for `FocusGained` or a remote key, which only reach the focused surface. `Shown` and
