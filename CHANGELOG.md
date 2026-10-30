@@ -1,5 +1,18 @@
 # lg-luma
 
+## 2.10.0
+
+### Minor Changes
+
+- 3bb5f57: Add Live aurora and Live ember, slowly moving wallpapers drawn on the GPU, and two burn-in settings in General: Wallpaper drift pans photo wallpapers slowly, and Pixel shift moves the interface a few pixels every two minutes. Both are on by default.
+- 757d553: Support `home.sh enable` on webOS 24 (9.x). SAM there rereads the mounted Home manifest after a brief change to configd's blocked-app list, as Glasshouse Home's takeover relies on; blocking and releasing Home remains the fallback.
+
+### Patch Changes
+
+- 757d553: Apply the Home takeover sooner after a cold boot: the boot hook is now `10-luma-home`, ahead of other homebrew hooks, starts as soon as SAM answers instead of after a fixed 5 s, polls for the manifest every 250 ms and logs each step with the uptime in `boot.log`.
+- c8a1360: As Home, stay hidden when webOS preloads Luma in the background, and appear only on the Home key. Before, a preload during playback put Luma over the app playing and cut its video.
+- 757d553: Open the Home instance from the Luma tile on webOS 9 while Luma is Home, instead of a second copy with separate settings.
+
 ## 2.9.0
 
 ### Minor Changes
